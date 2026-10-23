@@ -20,9 +20,8 @@ int gpu_unlock_610_load_shared(struct pci_dev *pdev, struct gpu_unlock_610_share
 void gpu_unlock_610_release_shared(struct gpu_unlock_610_shared *shared);
 
 /*
- * Unlock one cold, unbound RTX 3090. The caller holds pci_dev_lock. Returns 0
- * when the card is unlocked and handed back as found; otherwise a negative
- * errno, with the card left locked. Unlocks of different cards may run
+ * Unlock one cold, unbound supported GPU. The caller holds pci_dev_lock. Returns 0
+ * when the unlock and reset checks pass; otherwise a negative errno. Unlocks of different cards may run
  * concurrently with the same shared firmware.
  */
 int gpu_unlock_610_unlock(struct pci_dev *pdev, const struct gpu_unlock_610_shared *shared);

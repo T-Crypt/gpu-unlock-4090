@@ -15,6 +15,7 @@
 #define RTX_3090 0x2204
 #define RTX_3070 0x2484
 #define RTX_3060 0x2503 /* GA106: not supported */
+#define RTX_4090 0x2684 /* AD102 */
 
 static struct pci_dev devices[MAX_DEVICES];
 static unsigned int device_count;
@@ -221,7 +222,7 @@ static bool logged(const char *text)
 
 int main(void)
 {
-	/* Every unbound GA102/GA104 card at once; other chips and bound cards left alone. */
+	/* Every unbound supported card at once; other chips and bound cards left alone. */
 	reset("all");
 	add("0000:01:00.0", RTX_3090, false);
 	add("0000:21:00.0", RTX_3070, false);
@@ -246,7 +247,7 @@ int main(void)
 	run();
 	assert(fake.max_in_flight == 2 && !fake.unlocks[0] && fake.unlocks[1] && fake.unlocks[2]);
 	assert(fake.loads == 1 && fake.load_dev == &devices[1] && fake.releases == 1);
-	assert(!logged("no GA102/GA104 card"));
+	assert(!logged("no supported card"));
 	puts("list: only listed cards, concurrently PASS");
 
 	/* One card failing leaves the others unlocked. */
@@ -277,9 +278,26 @@ int main(void)
 	add("0000:31:00.0", RTX_3060, false);
 	run();
 	assert(!fake.loads && !fake.started && fake.releases == 1);
-	assert(logged("gpu_unlock: no GA102/GA104 card at \"0000:99:00.0\""));
-	assert(logged("gpu_unlock: no GA102/GA104 card at \"0000:31:00.0\""));
+	assert(logged("gpu_unlock: no supported card at \"0000:99:00.0\""));
+	assert(logged("gpu_unlock: no supported card at \"0000:31:00.0\""));
 	puts("unmatched target: reported, nothing loaded PASS");
+
+	/* AD102 RTX 4090 uses the normal target selection interface. */
+	reset("all");
+	add("0000:01:00.0", RTX_4090, false);
+	fake.expected_concurrent = 1;
+	run();
+	assert(fake.loads == 1 && fake.started == 1 && fake.unlocks[0] && fake.releases == 1);
+	puts("ad102: selected by all PASS");
+
+	reset("0000:01:00.0");
+	add("0000:01:00.0", RTX_4090, false);
+	add("0000:02:00.0", RTX_4090, false);
+	fake.expected_concurrent = 1;
+	run();
+	assert(fake.loads == 1 && fake.started == 1 && fake.unlocks[0] && !fake.unlocks[1] && fake.releases == 1);
+	assert(!logged("no supported card"));
+	puts("ad102: selected by PCI address PASS");
 
 	/* No opt-in on the command line: the module does nothing. */
 	for (int empty = 0; empty < 2; empty++) {

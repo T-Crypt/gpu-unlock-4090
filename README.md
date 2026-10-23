@@ -1,29 +1,49 @@
-# GPU unlock 1.0.0 packaging candidate
+# GPU unlock 1.0.0 — RTX 4090 / AD102
 
-This Linux kernel module combines the CMP unlocker's V67/PLM technique with the
-pre-driver timing of the UEFI approach. It runs the unlock, writes
-the speed selectors (SS0 `0x88888888`, which selects the full BF16 rate, and
-the 4-bit SS1 `0x8`, whose effect is untested) and performs FLR before the unmodified
-NVIDIA driver binds the card.
-It is neither a UEFI application nor a patched NVIDIA driver.
+This Linux kernel module enables the SM speed-select override before the stock
+NVIDIA driver starts. RTX 4090 (`10de:2684`, AD102) support has demonstrated
+approximately **2× FP16 and BF16 tensor throughput with FP32 accumulation**:
 
-The observed result is GPU1, an RTX 3090 at `0000:21:00.0`, on the main
-CachyOS `7.2.8-1-cachyos` kernel with NVIDIA `615.71.09`. GPU0 at
-`0000:01:00.0` was an unmodified control. Other RTX 3090 boards and
-environments have not been verified. GeForce and CMP GA102/GA104 PCI device
-IDs are accepted; professional RTX A-series and data-centre parts are not.
-No GA104 card and no GA102 card other than the RTX 3090 has been tested; the
-firmware and V67 image are the GA102 ones. Other chips are rejected.
+| Mode | Before | After |
+|---|---:|---:|
+| FP16 → FP32 accumulate | 165.6 TF/s | 331.6 TF/s |
+| BF16 → FP32 accumulate | 165.5 TF/s | 330.6 TF/s |
 
-## Local build
+The override survived PCIe Function Level Reset (FLR), stock NVIDIA `615.78.08`
+initialization and CUDA benchmarks. INT8, `dp4a` and scalar FP32 stayed near their
+baseline rates. This is one tested RTX 4090 and one successful cold power-on;
+independent cold-boot reproduction and application numerical validation remain
+pending. The measured firmware transaction preceded the repository cleanup;
+the cleaned module has host-side validation and still needs that hardware repeat.
+See the [technical report](rtx4090-register-report.md) and
+[sanitized evidence](docs/evidence/rtx4090/README.md).
 
-Every build downloads the pinned NVIDIA/CachyOS inputs over HTTPS, checks
-their SHA-256, and generates firmware only in the build directory and the
-binary package. All three formats install through the same `make install-*`
-targets. Packages are built from the committed `HEAD`.
+The AD102 payload and its debug-booter analysis come from
+**[TOTORONG/AD103_win_unlocker](https://huggingface.co/TOTORONG/AD103_win_unlocker)**.
+This fork integrates that published payload into
+**[Zagitta/gpu-unlock](https://github.com/Zagitta/gpu-unlock)**'s Linux module,
+firmware generation and boot packaging. The payload is essential to the result.
 
-Build, install build dependencies, and install the packages in one step
-(asks for your sudo password):
+## Supported targets
+
+The module selects the AD102 firmware and payload automatically for RTX 4090
+`10de:2684`. The original GeForce/CMP GA102/GA104 device list and GA102 payload
+are retained. Upstream reported RTX 3090 success; this fork's AD102 work does not
+revalidate every legacy board. Other Ada device IDs, professional RTX A-series
+and data-centre parts are not accepted. Shared firmware across Ada chips does
+not establish support for untested cards.
+
+The RTX 4090 path runs the signed firmware, checks the payload's completion marker and
+required permissions, writes SS0 `0x88888888` and SS1 `0x8`, then performs FLR
+before the unmodified NVIDIA driver binds. It requires the expected
+effective speed-select readout before and after FLR. No patched NVIDIA driver or UEFI
+application is needed. The payload uses instruction addresses derived from
+published decrypted debug-booter analysis; the production booter is authenticated
+and decrypted inside the GPU.
+
+## Build and install
+
+Install the package for your distribution, including its build dependencies:
 
 ```sh
 make install-arch   # makepkg -sif
@@ -31,87 +51,113 @@ make install-deb    # apt-get build-dep, dpkg-buildpackage, apt-get install
 make install-rpm    # dnf builddep, rpmbuild, dnf install
 ```
 
-`make arch`, `make deb` and `make rpm` only build. Debian and RPM packages go
-to `build/deb` and `build/rpm`. The NVIDIA inputs are cached in
-`~/.cache/gpu-unlock/inputs` (`make inputs`; override with `INPUTS=`).
-`dpkg-buildpackage` itself never uses the network, so a clean-chroot build (sbuild or
-pbuilder) needs `GPU_UNLOCK_INPUTS` pointing at that cache.
-The `make dist` archive, the Debian source package and the `.nosrc.rpm`
-contain no NVIDIA archives or generated firmware.
+`make arch`, `make deb` and `make rpm` build without installing. Packages are
+built from the committed `HEAD`; Debian and RPM outputs go to `build/deb` and
+`build/rpm`. Kernel headers and a working DKMS toolchain are required.
 
-## Boot flow and opt-in
+Builds fetch the pinned NVIDIA `610.43.03` source and binary inputs over HTTPS
+and verify their SHA-256 hashes. `make inputs` prepares the cache;
+`make firmware` generates assets from cached inputs; `make assets` does both.
+The default cache is `$HOME/.cache/gpu-unlock` and can be overridden with
+`CACHE=`, `INPUTS=` and `ASSETS=`. A clean-chroot Debian build needs
+`GPU_UNLOCK_INPUTS` pointing to the input cache because `dpkg-buildpackage`
+does not fetch inputs itself.
 
-The packages put `gpu_unlock` and its firmware in the initramfs and load it
-there, before `nvidia` can bind a card:
+The source archive produced by `make dist`, the Debian source package and the
+`.nosrc.rpm` contain no NVIDIA archives or generated firmware. See
+[firmware/README.md](firmware/README.md) for the input and asset layout.
 
-- **mkinitcpio:** `/etc/mkinitcpio.conf.d/zz-gpu-unlock.conf` inserts
-  `gpu_unlock` right before `nvidia` in `MODULES`, so a display card is blank
-  for as short a time as possible. Without `nvidia` in the image, it goes
-  last and still runs before an `nvidia` loaded from the root filesystem.
-  Images are rebuilt on install. mkinitcpio ignores drop-ins for an image
-  built with `-c <config>` or a preset `_config`; put `gpu_unlock` right
-  before `nvidia` in that config's `MODULES` yourself.
-- **initramfs-tools:** `/usr/share/initramfs-tools/modules.d/gpu-unlock.conf`.
+## Enable at boot
+
+The package installs the module and firmware into the initramfs so the unlock
+runs before NVIDIA binds the card. It remains inactive unless the kernel
+command line opts in:
+
+```text
+gpu_unlock.targets=0000:03:00.0
+gpu_unlock.targets=0000:03:00.0,0000:04:00.0
+gpu_unlock.targets=all
+```
+
+These PCI addresses are examples. Use the full PCI names printed by `lspci -D`.
+`all` selects every accepted unbound card, including legacy GA102/GA104 targets;
+an explicit address is useful when selecting one RTX 4090. Do not mix `all` with
+addresses. Invalid entries are logged and ignored.
+
+The packages support these initramfs generators:
+
+- **mkinitcpio:** `/etc/mkinitcpio.conf.d/zz-gpu-unlock.conf` puts `gpu_unlock`
+  immediately before `nvidia` in `MODULES`, or last if NVIDIA is absent. Images
+  are rebuilt on installation. A custom configuration selected with `-c` or a
+  preset `_config` does not read drop-ins; add `gpu_unlock` before `nvidia` in
+  that configuration's `MODULES` yourself.
+- **initramfs-tools:**
+  `/usr/share/initramfs-tools/modules.d/gpu-unlock.conf`.
 - **dracut:** `/usr/lib/dracut/dracut.conf.d/gpu-unlock.conf`.
 
-There is no `softdep nvidia pre:` rule: kmod honours only the first
-`softdep nvidia` line it reads, so other packages' rules (`nvidia-utils`,
-`gddr6_hwmon`) would silently override it, or it would override theirs.
+There is no `softdep nvidia pre:` rule because kmod uses only the first matching
+soft dependency line, which can conflict with other packages.
 
-The module does nothing unless the kernel command line opts in:
+**Power the machine off and start it again for the first attempt.** The module
+needs a card that no GPU driver has initialized since power-on. A warm reboot
+does not provide that state. It skips cards that are already bound, powered down
+or bus mastering, and refuses cards whose firmware state shows earlier use.
+Loading the module manually after NVIDIA has bound the card cannot unlock it.
 
-```
-gpu_unlock.targets=all                          # every unbound GA102/GA104 card
-gpu_unlock.targets=0000:21:00.0                 # only these cards
-gpu_unlock.targets=0000:21:00.0,0000:22:00.0    # comma-separated
-```
+Avoid `nvidia-smi`, CUDA, NVML and `nvidia-modprobe` before a manual cold-card
+attempt: they can load NVIDIA by name. Ordinary modprobe blacklist rules do not
+block explicit named loads. The packaged initramfs flow avoids the need for
+manual firmware staging and research parameters.
 
-Addresses are full PCI names as `lspci -D` prints them (hex digits in either
-case), independent of GPU numbering and display role. An entry that is not
-a GA102/GA104 card, including `all` mixed with addresses, is logged and ignored.
-The cards are unlocked concurrently, about a second in all however many
-there are, and each on its own: a card that is already bound, powered down
-or bus mastering is skipped. Then `nvidia` loads and binds every card as
-usual.
+The original display-card handoff is retained: the firmware framebuffer is
+removed just before FLR, and the display stays blank until `nvidia-drm` takes
+over. Display handoff and multi-card operation were not part of the RTX 4090
+validation.
 
-The display card works too. Its firmware framebuffer (the boot console and
-Plymouth) keeps running while the unlock's firmware steps run, and is
-removed just before the card's reset, as `nvidia-drm` would do a moment
-later anyway. Its screen is blank from that reset until `nvidia-drm` takes
-over.
+## Check and disable
 
-The unlock needs a cold card: power the machine off rather than rebooting.
-Warm reboots are not supported; with the option set, the unlock is expected
-to fail and leave the card as it was. Loading the module by hand after boot
-does nothing to a card that `nvidia` has bound. A card that a driver already
-used this power cycle is refused before any firmware runs (`card already
-initialised since power on`).
-
-Check the result with:
+Inspect the kernel log after boot:
 
 ```sh
 journalctl -k -b | grep gpu_unlock
-lspci -nnk -s 0000:21:00.0
+lspci -nnk -s 0000:03:00.0  # replace the example address
 ```
 
-To stop unlocking, remove `gpu_unlock.targets=` from the kernel command line;
-for a one-off boot, delete it in the bootloader's edit screen. Removing the
-packages also removes the module and the initramfs drop-ins.
+A loaded module or successful `modprobe` return alone does not prove an unlock:
+look for the selected card's `gpu_unlock: unlocked` message and the payload,
+selector and post-FLR checks. The report describes independent register and
+performance confirmation. The optional read-only sampler lives in
+`diagnostics/peek`; the CUDA instruction benchmark is in `diagnostics/bench`.
+Never load a second BAR0 sampler while `gpu_unlock` is performing its firmware
+transaction.
 
-If the firmware on a card never stops, the module logs it and keeps the DMA
-buffers that firmware may still use until the next power off. Power off
-before trying again.
+If the module reports that firmware did not stop and its DMA buffers are being
+kept, power off before trying again. The module intentionally retains buffers
+that firmware may still use. Do not force-unload it in this state.
 
-The kernel module and local packaging are GPL-2.0-only. The generated payload
-derives from the pinned CMP reference; NVIDIA firmware remains under its own
-terms. See `firmware/NOTICE.md` and `licenses/` for attribution and notices.
+Remove `gpu_unlock.targets=` from the kernel command line to disable future
+attempts. It can be removed for one boot in the bootloader editor. Removing the
+packages removes the module and initramfs integration; power off to return to a
+fresh hardware state.
 
+## Development and credits
 
-# Support me
+`make test` runs the host-side suite without accessing a GPU. With generated
+firmware available, it also exercises complete unlock transactions against mocked
+hardware. `make LLVM=1 -C kernel/gpu_unlock` builds the module with LLVM against
+the running kernel's headers.
 
-Help me buy more GPUs <3
+The Linux module and packaging derive from
+[Zagitta/gpu-unlock](https://github.com/Zagitta/gpu-unlock). The AD102 four-PLM
+payload derives from
+[TOTORONG/AD103_win_unlocker](https://huggingface.co/TOTORONG/AD103_win_unlocker),
+including its published payload generator and debug-booter analysis. The GA102
+V67 chain derives from
+[WildFlash1st/cmp90hx-unlock](https://github.com/WildFlash1st/cmp90hx-unlock).
+The earlier CMP unlock work, NVIDIA's published loader code, Nouveau and
+[envytools](https://github.com/envytools/envytools) also underpin the loader and
+investigation.
 
-https://buymeacoffee.com/zagitta
-ETH: 0xf4eee937937f92038D70B16AbD7736D8a53a1c5c
-BTC: bc1qwpkwp70fn76z3s4kg2l9y3j4kst95twcznuugf
-SOL: 8Rih6HY7V4LcdjYHz4iSffT4fTniqw5CACaBigSVxNYu
+The kernel module, packaging and payload integration are GPL-2.0-only. NVIDIA
+firmware remains under its own terms. See [firmware/NOTICE.md](firmware/NOTICE.md)
+and [licenses/](licenses/) for provenance and preserved license notices.

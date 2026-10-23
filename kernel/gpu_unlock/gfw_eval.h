@@ -23,6 +23,8 @@ typedef uint32_t u32;
 #define GU_FEAT_PLM_OFFSET 0x00823804u
 #define GU_FEAT_SS0_OFFSET 0x0082381cu
 #define GU_FEAT_SS1_OFFSET 0x00823820u
+/* Nine 3-bit per-unit SM speed-select values, 0 = full rate (register report). */
+#define GU_FEAT_READOUT_1_OFFSET 0x00823818u
 #define GU_GFW_PLM_LEVEL0 0x1u
 #define GU_GFW_BOOT_COMPLETED 0xffu
 #define GU_GFW_CPUCTL_HALTED 0x10u

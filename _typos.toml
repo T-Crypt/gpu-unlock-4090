@@ -1,0 +1,10 @@
+# typos: identifiers and prose this project uses that the dictionary lacks.
+#   PARM -- the kernel's MODULE_PARM_DESC()/MODULE_PARM() macros.
+#   mis  -- the prose prefix, as in "mis-decode" and "mis-parsed".
+[default.extend-words]
+PARM = "PARM"
+mis = "mis"
+
+[default]
+# rpmbuild -ba is "build all", not a misspelling.
+extend-ignore-re = ["rpmbuild -ba"]

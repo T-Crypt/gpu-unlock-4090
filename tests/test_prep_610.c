@@ -65,6 +65,48 @@ int main(void)
 	assert(gpu_unlock_fuse_version(1) == 1);
 	assert(gpu_unlock_fuse_version(0x8) == 4);
 
+	{
+		/* Both pinned BooterLoad geometries are accepted, and nothing else. */
+		struct gpu_unlock_booter_hdr ga = {
+			.os_code_off = 0, .os_code_size = 256,
+			.os_data_off = 35328, .os_data_size = 25088,
+			.num_apps = 1, .app_code_off = 256, .app_code_size = 35072,
+			.app_data_off = 256, .app_data_size = 0,
+			.patch_loc = 35344, .ucode_id = 3, .engine_id = 1,
+			.num_sigs = 2, .sig_bytes = GU_BOOTER_SIG_TOTAL,
+		};
+		struct gpu_unlock_booter_hdr ada = {
+			.os_code_off = 0, .os_code_size = 256,
+			.os_data_off = 32256, .os_data_size = 24576,
+			.num_apps = 1, .app_code_off = 256, .app_code_size = 32000,
+			.app_data_off = 256, .app_data_size = 0,
+			.patch_loc = 32272, .ucode_id = 3, .engine_id = 1,
+			.num_sigs = 2, .sig_bytes = GU_BOOTER_SIG_TOTAL,
+		};
+		const struct gpu_unlock_booter_geometry *g;
+
+		g = gpu_unlock_booter_geometry_match(&ga, GU_BOOTER_IMAGE_SIZE,
+						   GU_BOOTER_SIG_TOTAL);
+		assert(g && g->image_size == GU_BOOTER_IMAGE_SIZE);
+		g = gpu_unlock_booter_geometry_match(&ada, GU_BOOTER_IMAGE_SIZE_AD102,
+						   GU_BOOTER_SIG_TOTAL);
+		assert(g && g->image_size == GU_BOOTER_IMAGE_SIZE_AD102);
+		/* The patch lands 16 bytes into DMEM in both layouts. */
+		assert(g->hdr.patch_loc - g->hdr.os_data_off == 16);
+		assert(ga.patch_loc - ga.os_data_off == 16);
+		/* Size, signature size and field swaps are all rejected. */
+		assert(!gpu_unlock_booter_geometry_match(&ada, GU_BOOTER_IMAGE_SIZE,
+							GU_BOOTER_SIG_TOTAL));
+		assert(!gpu_unlock_booter_geometry_match(&ga, GU_BOOTER_IMAGE_SIZE_AD102,
+							GU_BOOTER_SIG_TOTAL));
+		assert(!gpu_unlock_booter_geometry_match(&ada, GU_BOOTER_IMAGE_SIZE_AD102, 768u + 1));
+		assert(!gpu_unlock_booter_geometry_match(NULL, GU_BOOTER_IMAGE_SIZE_AD102,
+							GU_BOOTER_SIG_TOTAL));
+		ada.patch_loc = 32256;
+		assert(!gpu_unlock_booter_geometry_match(&ada, GU_BOOTER_IMAGE_SIZE_AD102,
+							GU_BOOTER_SIG_TOTAL));
+	}
+
 	memset(image, 0, sizeof(image));
 	assert(!gpu_unlock_booter_patch(image, sizeof(image), &hdr, sigs,
 					sizeof(sigs), 0));
@@ -133,6 +175,19 @@ int main(void)
 		assert(gpu_unlock_boot_desc_parse(desc, 83, 24576, &boot) == -EINVAL);
 		put32(desc+48, ~0u);
 		assert(gpu_unlock_boot_desc_parse(desc, 84, 24576, &boot) == -ERANGE);
+		{
+			/* The AD102 GSP boot image is 0x9000 with its own offsets. */
+			const u32 ada[] = {5,32768,2176,34944,16,0,0,0,0,2048,2048,
+					   16384,18432,10496,1,0,0,0,0,36864,0};
+
+			for (unsigned int i=0; i<21; i++) put32(desc+i*4,ada[i]);
+			assert(!gpu_unlock_boot_desc_parse(desc, 84, 36864, &boot));
+			/* Same field order as GA102: manifest idx 8, data idx 10, code idx 12. */
+			assert(boot.manifest_offset == 0 && boot.data_offset == 2048 &&
+			       boot.code_offset == 18432 && boot.image_size == 36864);
+			/* The descriptor must agree with the image it describes. */
+			assert(gpu_unlock_boot_desc_parse(desc, 84, 24576, &boot) == -EINVAL);
+		}
 		assert(!gpu_unlock_radix_page(page, addresses, 2));
 		assert(page[3] == 0x23 && page[4] == 1 && page[12] == 0xd);
 		for (unsigned int i=16; i<sizeof(page); i++) assert(page[i] == 0);

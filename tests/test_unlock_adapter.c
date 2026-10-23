@@ -5,7 +5,7 @@
 #define __KERNEL__
 #include "../kernel/gpu_unlock/unlock_610.c"
 #include "vbios_fixture.h"
-static u32 regs[0x900000/4];
+static u32 regs[0x1000000/4];
 static const char *asset_root;
 static struct unlock_transaction_work *last_work;
 static bool full_active;
@@ -26,6 +26,7 @@ static struct {
     int post_gfw,post_gfw_reads,gsp_post_reset_writes;
     int fwsec_wpr;u32 fwsec_wpr_lo,fwsec_wpr_hi; /* WPR2 that FWSEC-FRTS enables */
     int apertures,regions;
+    int ad_mode;
     char log[32768];
 } fake;
 void *kzalloc(size_t n,int flags) {
@@ -86,6 +87,13 @@ u32 readl(const void *p) {
     return regs[n];
 }
 void writel(u32 v,void *p) {
+    if(full_active && dev.device==GU_AD102_RTX_4090) {
+        assert(last_work->permission_saved);
+        assert(last_work->permission_before[0]==0x0004cb8f);
+        assert(last_work->permission_before[1]==0xffffff0f);
+        assert(last_work->permission_before[2]==0x0004cb8f);
+        assert(last_work->permission_before[3]==0xffffff8f);
+    }
     fake.writes++;
     size_t off=(u8 *)p-(u8 *)regs;assert(off<sizeof(regs)); regs[off/4]=v;
     if(fake.flrs && off==0x1103c0) {
@@ -96,6 +104,10 @@ void writel(u32 v,void *p) {
     if(off==GU_FEAT_SS0_OFFSET && fake.selector_bad==1)regs[off/4]=0;
     if(off==GU_FEAT_SS1_OFFSET){fake.ss1_writes++;regs[off/4]=v&0xf;} /* 4-bit register, as on the card */
     if(off==GU_FEAT_SS1_OFFSET && fake.selector_bad==2)regs[off/4]=0;
+    if(dev.device==GU_AD102_RTX_4090 &&
+       (off==GU_FEAT_SS0_OFFSET || off==GU_FEAT_SS1_OFFSET) &&
+       regs[GU_FEAT_SS0_OFFSET/4]==GU_SS0_UNLOCK && regs[GU_FEAT_SS1_OFFSET/4]==GU_SS1_UNLOCK &&
+       fake.ad_mode!=7)regs[GU_FEAT_READOUT_1_OFFSET/4]=0;
     if(off==SEC2_BASE+0x118 || off==0x110118) {
         fake.dma_commands++;
         regs[off/4]=fake.dma_stall_after && fake.dma_commands>=fake.dma_stall_after?1:2;
@@ -112,6 +124,18 @@ void writel(u32 v,void *p) {
         if(fake.boot_mode==0)regs[GU_FEAT_PLM_OFFSET/4]=~0u;
         if(fake.boot_mode==2)regs[(SEC2_BASE+0x100)/4]=~0u;
         if(fake.boot_mode==3)regs[(SEC2_BASE+0x100)/4]=0x10;
+        if(dev.device==GU_AD102_RTX_4090) {
+            regs[0x1fa7cc/4]=fake.ad_mode==4?~0u:0xfffff0ff;
+            regs[0x9a0148/4]=fake.ad_mode==6?0xffffff0f:~0u;
+            regs[0x1fa7c4/4]=fake.ad_mode==5?0x0004cb8f:~0u;
+            regs[(SEC2_BASE+0x40)/4]=fake.ad_mode==1?0:fake.ad_mode==2?0x67b00002:GU_AD102_MARKER;
+            regs[(SEC2_BASE+0x100)/4]=fake.ad_mode==10?0:0x10;
+            if(fake.ad_mode==3)regs[GU_FEAT_PLM_OFFSET/4]=0xffffff8f;
+            if(fake.ad_mode==11)regs[0x1fa7cc/4]=0xbadf5040;
+            if(fake.ad_mode==12)regs[0]^=1;
+            if(fake.ad_mode==13)regs[GU_FEAT_READOUT_1_OFFSET/4]=0xbadf5040;
+            if(fake.ad_mode==14)regs[GU_FEAT_SS0_OFFSET/4]=~0u;
+        }
     }
     if(fake.fail_reset==2 && (off==SEC2_BASE+0x3c0 || off==0x1103c0))regs[off/4]=0;
     if(fake.fail_reset==8 && (off==SEC2_BASE+0x3c0 || off==0x1103c0))regs[off/4]=0xbadf0001;
@@ -163,7 +187,7 @@ void release_firmware(const struct firmware *f) {if(f){free((void *)f->data);fre
 void __module_get(void *p) {fake.pins++;}
 int pci_read_config_word(struct pci_dev *p,int r,u16 *v) {*v=r==PCI_COMMAND?fake.cmd:r==PCI_VENDOR_ID?0x10de:0;return 0;}
 int pci_read_config_dword(struct pci_dev *p,int r,u32 *v) {
-    *v=r==PCI_VENDOR_ID?(fake.flrs && fake.lost_identity?~0u:0x220410de):(u32)fake.bar_bad;return 0;
+    *v=r==PCI_VENDOR_ID?(fake.flrs && fake.lost_identity?~0u:(u32)p->device<<16|p->vendor):(u32)fake.bar_bad;return 0;
 }
 int pci_write_config_word(struct pci_dev *p,int r,u16 v) {assert(r==PCI_COMMAND);fake.cmd=v;return 0;}
 int pcie_capability_read_word(struct pci_dev *p,int r,u16 *v) {*v=r==PCI_EXP_DEVSTA?fake.pending:0;return 0;}
@@ -209,6 +233,8 @@ int pcie_flr(struct pci_dev *p) {
     if(fake.wpr_after!=4)regs[0x1fa824/4]=regs[0x1fa828/4]=0;
     if(fake.corrupt_selector==1)regs[GU_FEAT_SS0_OFFSET/4]=0;
     if(fake.corrupt_selector==2)regs[GU_FEAT_SS1_OFFSET/4]=0;
+    if(fake.ad_mode==8)regs[GU_FEAT_READOUT_1_OFFSET/4]=1u<<24;
+    if(fake.ad_mode==16)regs[GU_FEAT_PLM_OFFSET/4]=0xffffff8f;
     if(fake.alien_wpr){regs[0x1fa824/4]=0x1000;regs[0x1fa828/4]=0x2000;}
     if(fake.wpr_after==1)regs[0x1fa824/4]=regs[0x1fa828/4]=0;
     if(fake.wpr_after==2){regs[0x1fa824/4]=0x2000;regs[0x1fa828/4]=0x1000;}
@@ -231,6 +257,12 @@ static void check_published_image(void) {
     assert(get64(meta)==GU_WPR_META_MAGIC && get64(meta+8)==1);
     assert(get64(meta+72)==w->v67_dma && get64(meta+80)==GU_V67_SIZE);
     assert(!memcmp(w->v67_cpu,w->v67_fw->data,GU_V67_SIZE));
+    if(w->pdev->device==GU_AD102_RTX_4090) {
+        assert(!memcmp((u8 *)w->booter_cpu+w->booter_hdr.patch_loc,
+                       w->booter_fw->data+72+w->booter_image_size,384));
+        assert(w->booter_image_size==0xde00 && w->boot_desc.image_size==36864);
+        return;
+    }
     assert(get64(meta+112)==0x5f5400000ull && get64(meta+136)==0x5fada0000ull);
     assert(get64(meta+144)==0x5ffdfa000ull && get64(meta+152)==0x5ffe00000ull);
     assert(get64(meta+168)==0x5fff00000ull && get64(meta+176)==0x600000000ull);
@@ -332,16 +364,23 @@ int main(int argc, char **argv) {
         assert(fake.starts==(mode==3?1:0));
         if(mode<2)assert(!fake.dma_commands);
     }
-    /* Reject DMA address truncation/wrap before any reset or transfer. */
+    /* Reject DMA address truncation/wrap, and an empty length, before any
+     * reset or transfer. Nothing rejected here may pin the buffers. */
     for(int bad=0;bad<5;bad++) {
         setup(&w);
         u32 dest=bad==0?0xffff00:0, off=bad==1?0xffffff00:0;
         dma_addr_t src=bad==2?(1ull<<49)-256:0x100000;
-        u32 size=bad==3?257:512;
+        u32 size=bad==3?0:512;
         if(bad==4)src++;
         assert(falcon_dma(&w,SEC2_BASE,dest,off,src,size,0x614)==-EINVAL);
-        assert(!fake.writes);
+        assert(!fake.writes && !w.firmware_started);
     }
+    /* A length that is not a multiple of the block size is legal: the engine
+     * moves ceil(size/256) blocks (s_dmaTransfer_GA102). AD102's FWSEC DMEM
+     * is 0xd80, which needs this. */
+    setup(&w);
+    assert(!falcon_dma(&w,SEC2_BASE,0,0,0x100000,0xd80,0x614));
+    assert(fake.dma_commands==14 && w.firmware_started);
     {
         const struct falcon_eng eng={SEC2_BASE,SEC2_FBIF,SEC2_FALCON2};
         setup(&w);
@@ -349,7 +388,7 @@ int main(int argc, char **argv) {
                          0x100000,0,0,false)==-ERANGE);
         assert(!fake.writes);
         /* Bad DMEM geometry must not leave an already-submitted IMEM DMA. */
-        assert(falcon_hs(&w,&eng,0,256,0,0,256,257,0,0,1,3,
+        assert(falcon_hs(&w,&eng,0,256,0,0,256,256,0x1000000,0,1,3,
                          0x100000,0,0,false)==-EINVAL);
         assert(!fake.writes);
     }
@@ -553,7 +592,7 @@ int main(int argc, char **argv) {
             regs[0x1fa82c/4]=0x100000;regs[0x1fa830/4]=0x5cffff0;
             regs[GU_GFW_PLM_OFFSET/4]=1;regs[GU_GFW_BOOT_OFFSET/4]=0xff;
             regs[GU_GFW_CPUCTL_OFFSET/4]=0x10;
-            /* Cold values captured from the Palit card at 0000:21:00.0. */
+            /* Representative cold RTX 4090 register values. */
             regs[GU_FEAT_PLM_OFFSET/4]=0xffffff8f;regs[GU_FEAT_SS0_OFFSET/4]=0x40171022;
             regs[GU_FEAT_SS1_OFFSET/4]=0x2;
             fake.fwsec_wpr=1;
@@ -668,4 +707,5 @@ int main(int argc, char **argv) {
         puts("pinned firmware full BF16 transactions passed under mocked hardware");
     }
     puts("actual unlock_transaction radix, early-PLM and reset/retention checks passed");
+    return 0;
 }

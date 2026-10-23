@@ -18,7 +18,11 @@ typedef uint64_t u64;
 #include "layout_610.h"
 
 #define GU_BOOTER_IMAGE_SIZE 60416u
+#define GU_BOOTER_IMAGE_SIZE_AD102 56832u
 #define GU_BOOTER_SIG_TOTAL 768u
+
+/* AD102 GeForce RTX 4090, the only part with a non-GA102 asset set. */
+#define GU_AD102_RTX_4090 0x2684u
 #define GU_V67_SIZE 0xfa00u
 #define GU_WPR_META_SIZE 256u
 #define GU_WPR_META_MAGIC 0xdc3aae21371a60b3ull
@@ -40,6 +44,14 @@ struct gpu_unlock_booter_hdr {
 	u32 engine_id;
 	u32 num_sigs;
 	u32 sig_bytes;
+};
+
+/* One pinned BooterLoad container geometry. Only these are accepted, so a
+ * wrong or truncated asset cannot reach the Falcon. */
+struct gpu_unlock_booter_geometry {
+	u32 image_size;
+	u32 sig_bytes;
+	struct gpu_unlock_booter_hdr hdr;
 };
 
 struct gpu_unlock_span {
@@ -78,6 +90,11 @@ int gpu_unlock_radix_page(u8 out[GU_RADIX_PAGE], const u64 *children, size_t cou
 
 /* SEC2 fuse register value to the Booter signature index input. */
 u32 gpu_unlock_fuse_version(u32 raw);
+
+/* The pinned geometry matching this header and container size, or NULL. */
+const struct gpu_unlock_booter_geometry *
+gpu_unlock_booter_geometry_match(const struct gpu_unlock_booter_hdr *hdr,
+				 u32 image_size, u32 sig_bytes);
 
 int gpu_unlock_booter_patch(u8 *image, u32 image_size,
 			    const struct gpu_unlock_booter_hdr *hdr,

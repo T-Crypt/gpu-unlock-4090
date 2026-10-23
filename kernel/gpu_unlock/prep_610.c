@@ -25,6 +25,52 @@ u32 gpu_unlock_fuse_version(u32 raw)
 	return index + 1;
 }
 
+static const struct gpu_unlock_booter_geometry gpu_unlock_boot_fws[] = {
+	{	/* GA102 BooterLoadUcode, 610.43.03 */
+		.image_size = GU_BOOTER_IMAGE_SIZE,
+		.sig_bytes = GU_BOOTER_SIG_TOTAL,
+		.hdr = {
+			.os_code_off = 0, .os_code_size = 256,
+			.os_data_off = 35328, .os_data_size = 25088,
+			.num_apps = 1, .app_code_off = 256, .app_code_size = 35072,
+			.app_data_off = 256, .app_data_size = 0,
+			.patch_loc = 35344, .ucode_id = 3, .engine_id = 1,
+			.num_sigs = 2, .sig_bytes = GU_BOOTER_SIG_TOTAL,
+		},
+	},
+	{	/* AD102 BooterLoadUcode, 610.43.03 */
+		.image_size = GU_BOOTER_IMAGE_SIZE_AD102,
+		.sig_bytes = GU_BOOTER_SIG_TOTAL,
+		.hdr = {
+			.os_code_off = 0, .os_code_size = 256,
+			.os_data_off = 32256, .os_data_size = 24576,
+			.num_apps = 1, .app_code_off = 256, .app_code_size = 32000,
+			.app_data_off = 256, .app_data_size = 0,
+			.patch_loc = 32272, .ucode_id = 3, .engine_id = 1,
+			.num_sigs = 2, .sig_bytes = GU_BOOTER_SIG_TOTAL,
+		},
+	},
+};
+
+const struct gpu_unlock_booter_geometry *
+gpu_unlock_booter_geometry_match(const struct gpu_unlock_booter_hdr *hdr,
+				 u32 image_size, u32 sig_bytes)
+{
+	unsigned int i;
+
+	if (!hdr)
+		return NULL;
+	for (i = 0; i < sizeof(gpu_unlock_boot_fws) / sizeof(gpu_unlock_boot_fws[0]); i++) {
+		const struct gpu_unlock_booter_geometry *fw = &gpu_unlock_boot_fws[i];
+
+		if (fw->image_size == image_size && fw->sig_bytes == sig_bytes &&
+		    hdr->sig_bytes == sig_bytes &&
+		    !memcmp(&fw->hdr, hdr, sizeof(*hdr)))
+			return fw;
+	}
+	return NULL;
+}
+
 int gpu_unlock_booter_patch(u8 *image, u32 image_size,
 			    const struct gpu_unlock_booter_hdr *hdr,
 			    const u8 *signatures, u32 sig_bytes, u32 fuse_ver)

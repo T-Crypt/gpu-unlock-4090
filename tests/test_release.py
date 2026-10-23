@@ -21,11 +21,13 @@ CASES = {
     "prep_610": ["layout_610.c", "prep_610.c"],
     "vbios_610": ["vbios_610.c"],
     "unlock_adapter": ["gfw_eval.c", "prep_610.c", "layout_610.c", "vbios_610.c"],
+    "ad102_kernel": ["gfw_eval.c", "prep_610.c", "layout_610.c", "vbios_610.c"],
     "main": [],
 }
 # Tests that include a kernel source directly build it against a shim.
 SHIMS = {
     "unlock_adapter": ["-I", str(ROOT / "tests/unlock_shim")],
+    "ad102_kernel": ["-I", str(ROOT / "tests/unlock_shim")],
     # The kernel build does not warn on sign-compare; match it for main.c.
     "main": ["-I", str(ROOT / "tests/main_shim"), "-pthread", "-Wno-sign-compare"],
 }
@@ -46,7 +48,7 @@ class ComponentTests(unittest.TestCase):
                                "-o", str(output)]
                     subprocess.run(command, check=True)
                     args = [str(output)]
-                    if name == "unlock_adapter" and ASSETS:
+                    if name in ("unlock_adapter", "ad102_kernel") and ASSETS:
                         args += ["-", str(ASSETS)]
                     result = subprocess.run(args, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0,

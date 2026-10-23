@@ -3,7 +3,7 @@
 Name: gpu-unlock
 Version: 1.0.0
 Release: 1%{?dist}
-Summary: RTX 3090 BF16 unlock before the NVIDIA driver loads
+Summary: RTX 4090 FP32-accumulate tensor unlock before the NVIDIA driver loads
 License: GPL-2.0-only
 BuildArch: noarch
 Source0: gpu-unlock-%{version}.tar.xz
@@ -18,11 +18,11 @@ BuildRequires: python3
 BuildRequires: zstd
 
 %description
-Kernel module that unlocks RTX 3090 BF16 throughput before the unmodified
+Kernel module that unlocks RTX 4090 FP32-accumulate tensor throughput before the unmodified
 NVIDIA driver binds, opted in on the kernel command line.
 
 %package dkms
-Summary: RTX 3090 BF16 unlock kernel source
+Summary: RTX 4090 tensor unlock kernel source
 Requires: dkms
 Requires: gpu-unlock-firmware = %{version}-%{release}
 
@@ -74,5 +74,5 @@ if [ "$1" -eq 0 ] && [ -d /var/lib/dkms/gpu-unlock/%{version} ]; then
 fi
 
 %changelog
-* Mon Sep 28 2026 Zagitta <zetlon+github@gmail.com> - 1.0.0-1
-- Initial release.
+* Fri Oct 23 2026 Gaeros <163143799+elias-gaeros@users.noreply.github.com> - 1.0.0-1
+- Add tested RTX 4090 support and credit the AD103 payload project.

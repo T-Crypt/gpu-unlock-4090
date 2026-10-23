@@ -9,12 +9,13 @@
 
 static char *targets;
 module_param(targets, charp, 0444);
-MODULE_PARM_DESC(targets, "\"all\" or comma-separated PCI addresses of GA102/GA104 cards to unlock");
+MODULE_PARM_DESC(targets, "\"all\" or comma-separated PCI addresses of RTX 4090/GA102/GA104 cards to unlock");
 
-/* GA102 and GA104 GPU functions in pci.ids, excluding audio functions and the
- * professional (GL) parts, which already run BF16 at full rate.
- */
+/* RTX 4090 and GA102/GA104 GPU functions, excluding audio and professional
+ * (GL) functions. */
 static const unsigned short supported_ids[] = {
+	/* AD102: GeForce RTX 4090 */
+	0x2684,
 	/* GA102 */
 	0x2200, 0x2203, 0x2204, 0x2205, 0x2206, 0x2207, 0x2208, 0x220a,
 	0x220d, 0x2216, 0x222b, 0x222f,
@@ -28,16 +29,25 @@ static const unsigned short supported_ids[] = {
 static ASYNC_DOMAIN_EXCLUSIVE(unlock_domain);
 static struct gpu_unlock_610_shared shared;
 
+/* True for a card this load may act on at all. */
+static bool supported(const struct pci_dev *pdev)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(supported_ids); i++)
+		if (pdev->device == supported_ids[i])
+			return true;
+	return false;
+}
+
 /* The next supported NVIDIA card after from, like pci_get_device(). */
 static struct pci_dev *next_supported(struct pci_dev *from)
 {
 	struct pci_dev *pdev = from;
-	unsigned int i;
 
 	while ((pdev = pci_get_device(PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID, pdev)))
-		for (i = 0; i < ARRAY_SIZE(supported_ids); i++)
-			if (pdev->device == supported_ids[i])
-				return pdev;
+		if (supported(pdev))
+			return pdev;
 	return NULL;
 }
 
@@ -85,7 +95,7 @@ static void report_unmatched(void)
 		if (pdev)
 			pci_dev_put(pdev);
 		else
-			pr_err("gpu_unlock: no GA102/GA104 card at \"%.*s\"\n",
+			pr_err("gpu_unlock: no supported card at \"%.*s\"\n",
 			       (int)(end - entry), entry);
 	}
 }
@@ -128,5 +138,5 @@ static void __exit gpu_unlock_exit(void)
 module_init(gpu_unlock_init);
 module_exit(gpu_unlock_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("GA102/GA104 pre-driver BF16 unlock");
+MODULE_DESCRIPTION("RTX 4090 and GA102/GA104 pre-driver tensor unlock");
 MODULE_VERSION("1.0.0");

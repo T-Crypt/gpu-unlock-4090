@@ -98,7 +98,35 @@ def build_bundle(source_text: str) -> bytes:
 PINNED = {
     'g_bindata_kgspGetBinArchiveBooterLoadUcode_GA102.c': '04cd3db7f670adc4efd79d2e76217bb809fffddfbd6f1af884cde2af26dd39af',
     'g_bindata_kgspGetBinArchiveGspRmBoot_GA102.c': '35e5aa9075ad3898b6022ffd5820c953d809caa7dabd530cfc1a83dc2a67c5bd',
+    'g_bindata_kgspGetBinArchiveBooterLoadUcode_AD102.c': '0504f640bc36d03c3b617b1d80cf6eee1c8022cdfffb52ed22405aaa316a1460',
+    'g_bindata_kgspGetBinArchiveGspRmBoot_AD102.c': 'da110719ed6b680f26f3f7158f6731d1ff20fa859857238e23ac4935bd4cd91c',
 }
+
+# Chip suffix -> (booter asset, GSP boot image asset, boot descriptor asset).
+# AD102 is generated for the experimental Ada path only; the GA102 geometry is
+# the shipped one. Both come from the same pinned source archive.
+CHIPS = {
+    'GA102': ('booter_load_ga102.bin', 'gsp_boot_ga102.bin', 'gsp_boot_desc_ga102.bin'),
+    'AD102': ('booter_load_ad102.bin', 'gsp_boot_ad102.bin', 'gsp_boot_desc_ad102.bin'),
+}
+
+
+def build_chip_blobs(inputs: dict, chip: str) -> dict:
+    suffix = '_{}.c'.format(chip)
+    booter = build_bundle(inputs['g_bindata_kgspGetBinArchiveBooterLoadUcode' + suffix])
+    boot = inputs['g_bindata_kgspGetBinArchiveGspRmBoot' + suffix]
+    image = _array_bytes(boot, 'UCODE_IMAGE_PROD')[0]
+    desc = _array_bytes(boot, 'UCODE_DESC_PROD')[0]
+    if len(desc) != 84:
+        raise ValueError('unexpected pinned bootloader descriptor length: ' + chip)
+    fields = struct.unpack('<21I', desc)
+    if fields[0] != 5 or fields[14] != 1 or fields[19] != len(image) or fields[20] != 0:
+        raise ValueError('unsupported bootloader descriptor: ' + chip)
+    for index in (1,3,8,10,12):
+        if not fields[index+1] or fields[index]+fields[index+1] > len(image):
+            raise ValueError('bootloader descriptor range outside image: ' + chip)
+    names = CHIPS[chip]
+    return dict(zip(names, (booter, image, desc)))
 
 
 def extract_assets(source_root: Path, output: Path) -> None:
@@ -108,20 +136,10 @@ def extract_assets(source_root: Path, output: Path) -> None:
         if hashlib.sha256(data).hexdigest() != digest:
             raise ValueError('pinned generated source mismatch: ' + name)
         inputs[name] = data.decode('ascii')
-    booter = build_bundle(inputs['g_bindata_kgspGetBinArchiveBooterLoadUcode_GA102.c'])
-    boot = inputs['g_bindata_kgspGetBinArchiveGspRmBoot_GA102.c']
-    image = _array_bytes(boot, 'UCODE_IMAGE_PROD')[0]
-    desc = _array_bytes(boot, 'UCODE_DESC_PROD')[0]
-    if len(desc) != 84:
-        raise ValueError('unexpected pinned bootloader descriptor length')
-    fields = struct.unpack('<21I', desc)
-    if fields[0] != 5 or fields[14] != 1 or fields[19] != len(image) or fields[20] != 0:
-        raise ValueError('unsupported bootloader descriptor')
-    for index in (1,3,8,10,12):
-        if not fields[index+1] or fields[index]+fields[index+1] > len(image):
-            raise ValueError('bootloader descriptor range outside image')
-    blobs = {'booter_load_ga102.bin': booter, 'gsp_boot_ga102.bin': image, 'gsp_boot_desc_ga102.bin': desc}
     pinned = json.loads(MANIFEST.read_text())['derived_assets']
+    blobs = {}
+    for chip in CHIPS:
+        blobs.update(build_chip_blobs(inputs, chip))
     for name, data in blobs.items():
         if hashlib.sha256(data).hexdigest() != pinned[name]:
             raise ValueError('derived asset differs from its pinned SHA-256: ' + name)

@@ -12,7 +12,7 @@
 #endif
 
 /* No extra device reads. Preserve the errno and identify the exact guard in
- * the matching source bundled with each kit, including pure parser failures. */
+ * the matching source, including pure parser failures. */
 static inline int gu_diagnostic_result(int error, const char *file,
                                       const char *function, unsigned int line)
 {
