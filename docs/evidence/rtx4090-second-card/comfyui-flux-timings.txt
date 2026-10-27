@@ -1,0 +1,18 @@
+# baseline (warm runs; seed 4242 run 1 includes model load, runs 2-3 were cache hits)
+state/evals/2026-10-26/gpu-unlock/comfy-baseline/base1_00001_.png
+url: http://10.0.0.200:8188/view?filename=base1_00001_.png&subfolder=&type=output
+run 1: 61.8 s
+state/evals/2026-10-26/gpu-unlock/comfy-baseline/base2_00001_.png
+url: http://10.0.0.200:8188/view?filename=base2_00001_.png&subfolder=&type=output
+run 2: 0.2 s
+state/evals/2026-10-26/gpu-unlock/comfy-baseline/base3_00001_.png
+url: http://10.0.0.200:8188/view?filename=base3_00001_.png&subfolder=&type=output
+run 3: 0.2 s
+warm seed 4243: 21.9 s
+warm seed 4244: 21.9 s
+warm seed 4245: 21.9 s
+# unlocked
+seed 4242: 54.1 s
+seed 4243: 18.3 s
+seed 4244: 18.2 s
+seed 4245: 18.3 s

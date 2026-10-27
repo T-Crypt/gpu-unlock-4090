@@ -18,6 +18,12 @@ the cleaned module has host-side validation and still needs that hardware repeat
 See the [technical report](rtx4090-register-report.md) and
 [sanitized evidence](docs/evidence/rtx4090/README.md).
 
+**Second card, 2026-10-26.** A different RTX 4090 running the cleaned module from
+this branch reached 330.5 / 329.7 TF/s (FP16 / BF16, FP32 accumulate) after a cold
+boot. On real workloads, Flux diffusion in ComfyUI ran 1.20x faster, while an LLM
+engine that prefills with INT8 MMA gained nothing. See the
+[second-card report](docs/evidence/rtx4090-second-card/README.md).
+
 The AD102 payload and its debug-booter analysis come from
 **[TOTORONG/AD103_win_unlocker](https://huggingface.co/TOTORONG/AD103_win_unlocker)**.
 This fork integrates that published payload into

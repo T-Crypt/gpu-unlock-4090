@@ -1,0 +1,9 @@
+berth: granted gpu-unlock-bench-7
+# NVIDIA GeForce RTX 4090, 128 SMs, sm_89, iters=20000 reps=3
+mode       best TF/s   all runs
+f16/f16        330.5 311.7/321.4/330.5
+f16/f32        165.3 165.3/165.3/165.3
+bf16/f32       165.3 165.2/165.3/165.3
+s8/s32         660.7 660.7/659.2/659.2
+dp4a           163.9 163.9/163.9/163.9
+ffma            78.8 78.7/78.7/78.8
