@@ -37,6 +37,13 @@ brought the card up as usual ([kernel-log.txt](kernel-log.txt)).
 | `dp4a` | 163.9 | 163.9 |
 | scalar `ffma` | 78.8 | 79.0 |
 
+FP8 with FP32 accumulate, measured with the FP8 mode from
+[JustAResearcher/gpu-unlock-ada](https://github.com/JustAResearcher/gpu-unlock-ada)'s
+`mma_bench.cu` (main `d28c485`) on the unlocked card, read **655.0 TF/s** in all three
+runs ([mma-unlocked-fp8.txt](mma-unlocked-fp8.txt)). We did not run FP8 before the
+unlock. NVIDIA rates a stock RTX 4090 at 330.3 TF/s for FP8 with FP32 accumulate and
+660.6 TF/s with FP16 accumulate, so this card now issues FP8 at 99% of the full rate.
+
 The FP16-accumulate row swings between 306 and 331 TF/s from run to run on both
 sides, so its change is noise. The rates match the first report within 0.5%.
 
@@ -103,6 +110,7 @@ described in the notes below; that band changes from run to run on its own
 |---|---|
 | [kernel-log.txt](kernel-log.txt) | `gpu_unlock` lines from the unlocked boot (root device redacted) |
 | [mma-baseline.txt](mma-baseline.txt), [mma-unlocked.txt](mma-unlocked.txt), [mma-after-engine-swaps.txt](mma-after-engine-swaps.txt) | `mma_bench` stdout |
+| [mma-unlocked-fp8.txt](mma-unlocked-fp8.txt) | gpu-unlock-ada `mma_bench` with the FP8 mode, unlocked only |
 | [ninfer-baseline.jsonl](ninfer-baseline.jsonl), [ninfer-unlocked.jsonl](ninfer-unlocked.jsonl) | LLM engine timing rows and the parity reply |
 | [llamacpp-unlocked.jsonl](llamacpp-unlocked.jsonl) | llama.cpp timing rows, unlocked only |
 | [comfyui-flux-timings.txt](comfyui-flux-timings.txt) | Flux wall-clock timings |

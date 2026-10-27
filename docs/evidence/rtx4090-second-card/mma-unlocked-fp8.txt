@@ -1,0 +1,11 @@
+# JustAResearcher/gpu-unlock-ada diagnostics/bench/mma_bench.cu (main @ d28c485), nvcc -O3 -arch=sm_89
+# run by the operator on the unlocked card, 2026-10-26; no stock FP8 run on this card
+iters=20000 reps=3
+mode       best TF/s   all runs
+f16/f16        330.6 330.6/330.6/330.6
+f16/f32        330.6 330.6/330.4/330.6
+bf16/f32       330.2 330.2/328.7/328.7
+s8/s32         657.5 657.5/657.5/657.5
+fp8/e4m3       655.0 655.0/655.0/655.0
+dp4a           163.5 163.5/163.5/163.5
+ffma            78.7 78.7/78.7/78.7
